@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="uk">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Гід містами України</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f4f9;
+        }
+
+        #app {
+            max-width: 600px;
+            margin: auto;
+            text-align: center;
+            padding: 20px;
+            background: #fff;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        input,
+        button {
+            padding: 10px;
+            margin: 10px 0;
+            font-size: 16px;
+            width: calc(100% - 24px);
+        }
+
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        .info {
+            text-align: left;
+            margin-top: 20px;
+        }
+
+        img {
+            max-width: 100%;
+            margin-top: 10px;
+            border-radius: 10px;
+        }
+
+        p {
+            font-size: 20px;
+            font-family: Arial, Helvetica, sans-serif;
+            text-transform: capitalize;
+        }
+
+        .landmark {
+            margin: 10px 0;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="app">
+        <h1>Гід містами України</h1>
+        <input type="text" id="cityName" placeholder="Введіть назву міста (українською)">
+        <button id="searchButton">Показати інформацію</button>
+        <div id="result" class="info"></div>
+    </div>
+
+    <script>
+        document.getElementById('searchButton').addEventListener('click', async () => {
+            const cityName = document.getElementById('cityName').value.trim();
+            const resultDiv = document.getElementById('result');
+
+            if (!cityName) {
+                resultDiv.innerHTML = '<p>Будь ласка, введіть назву міста.</p>';
+                return;
+            }
+
+            try {
+                resultDiv.innerHTML = "<p>Завантаження...</p>";
+
+                // Запит до Wikidata для пошуку міста
+                const searchUrl = `https://www.wikidata.org/w/api.php?action=wbsearchentities&search=${encodeURIComponent(cityName)}&language=uk&format=json&origin=*`;
+                const searchResponse = await fetch(searchUrl);
+                const searchData = await searchResponse.json();
+
+                if (!searchData.search || searchData.search.length === 0) {
+                    resultDiv.innerHTML = `<p>Інформація про місто "${cityName}" не знайдена.</p>`;
+                    return;
+                }
+
+                const cityId = searchData.search[0].id;
+
+                // Запит до Wikidata для отримання деталей міста
+                const detailsUrl = `https://www.wikidata.org/wiki/Special:EntityData/${cityId}.json`;
+                const detailsResponse = await fetch(detailsUrl);
+                const detailsData = await detailsResponse.json();
+
+                const cityData = detailsData.entities[cityId];
+
+                // Населення
+                const populationClaim = cityData.claims.P1082?.[0]?.mainsnak?.datavalue?.value?.amount;
+                const population = populationClaim ? parseInt(populationClaim).toLocaleString('uk-UA') : 'Невідомо';
+
+                // Фото міста
+                const cityImageClaim = cityData.claims.P18?.[0]?.mainsnak?.datavalue?.value;
+                const cityImage = cityImageClaim ? `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(cityImageClaim)}` : '';
+
+                // Визначні місця (отримання 2 об'єктів)
+                const landmarks = await fetchLandmarks(cityData.claims.P31?.slice(0, 2) || []);
+
+                // Відображення результатів
+                resultDiv.innerHTML = `
+                    <h2>${cityName}</h2>
+                    ${cityImage ? `<img src="${cityImage}" alt="Фото міста ${cityName}">` : ''}
+                    <p><strong>Населення:</strong> ${population}</p>
+                    <p><strong>Визначні місця:</strong></p>
+                    ${landmarks}
+                `;
+            } catch (error) {
+                console.error(error);
+                resultDiv.innerHTML = '<p>Сталася помилка при отриманні даних. Спробуйте ще раз пізніше.</p>';
+            }
+        });
+
+        async function fetchLandmarks(landmarkClaims) {
+            if (landmarkClaims.length === 0) return '<p>Немає доступних визначних місць.</p>';
+
+            const results = await Promise.all(landmarkClaims.map(async claim => {
+                const id = claim.mainsnak?.datavalue?.value?.id;
+                if (!id) return '';
+
+                const url = `https://www.wikidata.org/w/api.php?action=wbgetentities&ids=${id}&languages=uk&props=labels|claims&format=json&origin=*`;
+                const response = await fetch(url);
+                const data = await response.json();
+                const entity = data.entities[id];
+
+                const name = entity.labels?.uk?.value || 'Невідоме місце';
+
+                const imageClaim = entity.claims?.P18?.[0]?.mainsnak?.datavalue?.value;
+                const imageUrl = imageClaim ? `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(imageClaim)}` : '';
+
+                return `
+                    <div class="landmark">
+                        <p>${name}</p>
+                        ${imageUrl ? `<img src="${imageUrl}" alt="${name}">` : ''}
+                    </div>
+                `;
+            }));
+
+            return results.join('');
+        }
+    </script>
+</body>
+
+</html>
