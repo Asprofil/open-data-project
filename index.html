@@ -52,14 +52,16 @@
             border-radius: 10px;
         }
 
+        .landmark img {
+            max-width: 300px;
+            margin: 5px auto;
+            border-radius: 10px;
+        }
+
         p {
             font-size: 20px;
             font-family: Arial, Helvetica, sans-serif;
             text-transform: capitalize;
-        }
-
-        .landmark {
-            margin: 10px 0;
         }
     </style>
 </head>
@@ -112,16 +114,15 @@
                 const cityImageClaim = cityData.claims.P18?.[0]?.mainsnak?.datavalue?.value;
                 const cityImage = cityImageClaim ? `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(cityImageClaim)}` : '';
 
-                // Визначні місця (отримання 2 об'єктів)
-                const landmarks = await fetchLandmarks(cityData.claims.P31?.slice(0, 2) || []);
+                // Визначні місця
+                const landmarksHtml = await fetchLandmarksForCity(cityId);
 
-                // Відображення результатів
                 resultDiv.innerHTML = `
                     <h2>${cityName}</h2>
                     ${cityImage ? `<img src="${cityImage}" alt="Фото міста ${cityName}">` : ''}
                     <p><strong>Населення:</strong> ${population}</p>
                     <p><strong>Визначні місця:</strong></p>
-                    ${landmarks}
+                    ${landmarksHtml}
                 `;
             } catch (error) {
                 console.error(error);
@@ -129,32 +130,39 @@
             }
         });
 
-        async function fetchLandmarks(landmarkClaims) {
-            if (landmarkClaims.length === 0) return '<p>Немає доступних визначних місць.</p>';
+        async function fetchLandmarksForCity(cityId) {
+            const endpoint = "https://query.wikidata.org/sparql";
+            const query = `
+                SELECT ?place ?placeLabel ?image WHERE {
+                    ?place wdt:P131 wd:${cityId} .   # Визначне місце в місті
+                    OPTIONAL { ?place wdt:P18 ?image }  # Фото місця
+                    SERVICE wikibase:label { bd:serviceParam wikibase:language "uk". }
+                }
+                LIMIT 2
+            `;
 
-            const results = await Promise.all(landmarkClaims.map(async claim => {
-                const id = claim.mainsnak?.datavalue?.value?.id;
-                if (!id) return '';
+            const url = `${endpoint}?query=${encodeURIComponent(query)}&format=json`;
 
-                const url = `https://www.wikidata.org/w/api.php?action=wbgetentities&ids=${id}&languages=uk&props=labels|claims&format=json&origin=*`;
+            try {
                 const response = await fetch(url);
                 const data = await response.json();
-                const entity = data.entities[id];
 
-                const name = entity.labels?.uk?.value || 'Невідоме місце';
+                const results = data.results.bindings.map(item => {
+                    const name = item.placeLabel?.value || "Невідоме місце";
+                    const imageUrl = item.image?.value || null;
+                    return `
+                        <div class="landmark">
+                            <p>${name}</p>
+                            ${imageUrl ? `<img src="${imageUrl}" alt="${name}">` : ''}
+                        </div>
+                    `;
+                });
 
-                const imageClaim = entity.claims?.P18?.[0]?.mainsnak?.datavalue?.value;
-                const imageUrl = imageClaim ? `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(imageClaim)}` : '';
-
-                return `
-                    <div class="landmark">
-                        <p>${name}</p>
-                        ${imageUrl ? `<img src="${imageUrl}" alt="${name}">` : ''}
-                    </div>
-                `;
-            }));
-
-            return results.join('');
+                return results.join('');
+            } catch (error) {
+                console.error("Помилка при отриманні визначних місць:", error);
+                return '<p>Не вдалося завантажити визначні місця.</p>';
+            }
         }
     </script>
 </body>
